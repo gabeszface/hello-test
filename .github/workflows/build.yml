@@ -1,0 +1,58 @@
+name: Build APK
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Projekt kicsomagolása
+        run: |
+          if [ ! -f project.zip ]; then
+            echo "Nincs project.zip a tárhely gyökerében"; exit 1
+          fi
+          rm -rf src && mkdir src
+          unzip -o project.zip -d src
+          SETTINGS=$(find src -maxdepth 3 -name 'settings.gradle*' | head -1)
+          if [ -z "$SETTINGS" ]; then
+            echo "Nincs settings.gradle a zipben"; exit 1
+          fi
+          echo "PROJ_DIR=$(dirname "$SETTINGS")" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.7
+
+      - name: APK építése
+        working-directory: ${{ env.PROJ_DIR }}
+        run: gradle assembleDebug --no-daemon
+
+      - name: APK összegyűjtése
+        run: |
+          mkdir -p out
+          cp "$(find "$PROJ_DIR" -path '*outputs/apk/debug/*.apk' | head -1)" out/app-debug.apk
+          ls -l out
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-debug
+          path: out/app-debug.apk
+
+      - name: Kiadás létrehozása
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Build ${{ github.run_number }}
+          files: out/app-debug.apk
